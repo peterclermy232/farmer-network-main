@@ -65,19 +65,56 @@ export function setupAuth(app: Express) {
 
   app.post("/api/register", async (req, res, next) => {
     try {
-      const existingUser = await storage.getUserByUsername(req.body.username);
+      const { username, email, password, role, name } = req.body;
+      
+      // Validate required fields
+      if (!username || !email || !password) {
+        return res.status(400).json({ error: "Username, email, and password are required" });
+      }
+      
+      // Check if username already exists
+      const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
-        return res.status(400).send("Username already exists");
+        return res.status(400).json({ error: "Username already exists" });
+      }
+      
+      // Check if email already exists
+      if (storage.getUserByEmail) {
+        const existingEmail = await storage.getUserByEmail(email);
+        if (existingEmail) {
+          return res.status(400).json({ error: "Email already exists" });
+        }
+      }
+      
+      // Validate password strength
+      if (password.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters long" });
+      }
+      
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Invalid email format" });
       }
 
       const user = await storage.createUser({
-        ...req.body,
-        password: await hashPassword(req.body.password),
+        username,
+        email,
+        password: await hashPassword(password),
+        role: role || "buyer",
+        name: name || username
       });
 
       req.login(user, (err) => {
         if (err) return next(err);
-        res.status(201).json(user);
+        res.status(201).json({
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          name: user.name,
+          createdAt: user.createdAt
+        });
       });
     } catch (error) {
       next(error);
