@@ -57,9 +57,9 @@ export interface IStorage {
 }
 
 // Create storage instance - use database storage if DATABASE_URL is available
-export const storage: IStorage = process.env.DATABASE_URL 
+export const storage: IStorage = process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== ""
   ? new DatabaseStorage()
   : (() => {
-      console.warn("DATABASE_URL not found. Please set up PostgreSQL database.");
+      console.warn("DATABASE_URL not found. Please set up database.");
       throw new Error("Database connection required. Please set DATABASE_URL environment variable.");
     })();
