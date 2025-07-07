@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { 
   users, 
   type User, 
@@ -172,16 +172,16 @@ export class DatabaseStorage implements IStorage {
     const orderItemsWithProducts = await this.db
       .select({ orderId: orderItems.orderId })
       .from(orderItems)
-      .where(eq(orderItems.productId, productIds[0])); // This would need proper IN operator
+      .where(inArray(orderItems.productId, productIds));
     
-    const orderIds = orderItemsWithProducts.map(item => item.orderId);
+    const orderIds = [...new Set(orderItemsWithProducts.map(item => item.orderId))];
     
     if (orderIds.length === 0) {
       return [];
     }
     
     // Get orders with those IDs
-    return await this.db.select().from(orders).where(eq(orders.id, orderIds[0])); // This would need proper IN operator
+    return await this.db.select().from(orders).where(inArray(orders.id, orderIds));
   }
 
   async createOrder(order: InsertOrder, items: InsertOrderItem[]): Promise<Order> {
@@ -256,7 +256,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(orderItems.orderId, orderId),
-          eq(orderItems.productId, productIds[0]) // This would need proper IN operator
+          inArray(orderItems.productId, productIds)
         )
       );
     
