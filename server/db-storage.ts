@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import Database from "better-sqlite3";
 import { eq, and, inArray } from "drizzle-orm";
 import { 
   users, 
@@ -27,7 +27,7 @@ const MemoryStore = createMemoryStore(session);
 
 export class DatabaseStorage implements IStorage {
   private db: ReturnType<typeof drizzle>;
-  private sql: postgres.Sql;
+  private sqlite: Database.Database;
   sessionStore: session.SessionStore;
 
   constructor() {
@@ -37,11 +37,94 @@ export class DatabaseStorage implements IStorage {
       throw new Error("DATABASE_URL environment variable is not set");
     }
 
-    this.sql = postgres(databaseUrl);
-    this.db = drizzle(this.sql);
+    // Extract the database file path from sqlite URL
+    const dbPath = databaseUrl.replace('sqlite://', '') || './farmers_market.db';
+    
+    this.sqlite = new Database(dbPath);
+    this.db = drizzle(this.sqlite);
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000 // 24 hours
     });
+
+    // Initialize database tables
+    this.initializeTables();
+  }
+
+  private initializeTables() {
+    // Enable foreign keys
+    this.sqlite.exec('PRAGMA foreign_keys = ON;');
+    
+    // Create tables
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL DEFAULT 'buyer' CHECK (role IN ('farmer', 'buyer', 'admin')),
+        name TEXT,
+        address TEXT,
+        phone TEXT,
+        bio TEXT,
+        profile_picture TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        farmer_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        category TEXT NOT NULL,
+        price REAL NOT NULL,
+        unit TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        image_url TEXT,
+        image TEXT,
+        organic INTEGER DEFAULT 0,
+        sku TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (farmer_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        buyer_id INTEGER NOT NULL,
+        order_number TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'shipped', 'delivered', 'cancelled')),
+        total REAL NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        quantity REAL NOT NULL,
+        price REAL NOT NULL,
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+      );
+    `);
+
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS market_prices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        price REAL NOT NULL,
+        previous_price REAL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
   }
 
   // User operations
@@ -61,7 +144,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await this.db.insert(users).values(insertUser).returning();
+    const result = await this.db.insert(users).values({
+      ...insertUser,
+      createdAt: new Date().toISOString()
+    }).returning();
     return result[0];
   }
 
@@ -114,8 +200,8 @@ export class DatabaseStorage implements IStorage {
   async createProduct(product: InsertProduct): Promise<Product> {
     const result = await this.db.insert(products).values({
       ...product,
-      createdAt: new Date(),
-      updatedAt: new Date()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     }).returning();
     return result[0];
   }
@@ -125,7 +211,7 @@ export class DatabaseStorage implements IStorage {
       .update(products)
       .set({
         ...product,
-        updatedAt: new Date()
+        updatedAt: new Date().toISOString()
       })
       .where(eq(products.id, id))
       .returning();
@@ -185,41 +271,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createOrder(order: InsertOrder, items: InsertOrderItem[]): Promise<Order> {
-    // Start transaction
-    const result = await this.db.transaction(async (tx) => {
-      // Create order
-      const [newOrder] = await tx.insert(orders).values({
-        ...order,
-        createdAt: new Date()
-      }).returning();
+    // Create order
+    const [newOrder] = await this.db.insert(orders).values({
+      ...order,
+      createdAt: new Date().toISOString()
+    }).returning();
+    
+    // Create order items
+    if (items.length > 0) {
+      const orderItemsData = items.map(item => ({
+        ...item,
+        orderId: newOrder.id
+      }));
       
-      // Create order items
-      if (items.length > 0) {
-        const orderItemsData = items.map(item => ({
-          ...item,
-          orderId: newOrder.id
-        }));
-        
-        await tx.insert(orderItems).values(orderItemsData);
-        
-        // Update product quantities
-        for (const item of items) {
-          const [product] = await tx.select().from(products).where(eq(products.id, item.productId));
-          if (product) {
-            await tx.update(products)
-              .set({
-                quantity: product.quantity - item.quantity,
-                updatedAt: new Date()
-              })
-              .where(eq(products.id, item.productId));
-          }
+      await this.db.insert(orderItems).values(orderItemsData);
+      
+      // Update product quantities
+      for (const item of items) {
+        const [product] = await this.db.select().from(products).where(eq(products.id, item.productId));
+        if (product) {
+          await this.db.update(products)
+            .set({
+              quantity: product.quantity - item.quantity,
+              updatedAt: new Date().toISOString()
+            })
+            .where(eq(products.id, item.productId));
         }
       }
-      
-      return newOrder;
-    });
+    }
     
-    return result;
+    return newOrder;
   }
 
   async updateOrderStatus(id: number, status: string): Promise<Order> {
@@ -276,7 +357,7 @@ export class DatabaseStorage implements IStorage {
   async createMarketPrice(marketPrice: InsertMarketPrice): Promise<MarketPrice> {
     const result = await this.db.insert(marketPrices).values({
       ...marketPrice,
-      updatedAt: new Date()
+      updatedAt: new Date().toISOString()
     }).returning();
     return result[0];
   }
@@ -286,7 +367,7 @@ export class DatabaseStorage implements IStorage {
       .update(marketPrices)
       .set({
         ...marketPrice,
-        updatedAt: new Date()
+        updatedAt: new Date().toISOString()
       })
       .where(eq(marketPrices.id, id))
       .returning();
@@ -299,6 +380,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async close(): Promise<void> {
-    await this.sql.end();
+    this.sqlite.close();
   }
 }
