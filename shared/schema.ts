@@ -73,13 +73,13 @@ export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
 
 // Orders table
-export const orders = pgTable("orders", {
-  id: serial("id").primaryKey(),
+export const orders = sqliteTable("orders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   buyerId: integer("buyer_id").notNull(),
   orderNumber: text("order_number").notNull().unique(),
   status: text("status", { enum: ["pending", "shipped", "delivered", "cancelled"] }).notNull().default("pending"),
-  total: doublePrecision("total").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
+  total: real("total").notNull(),
+  createdAt: text("created_at").default("CURRENT_TIMESTAMP"),
 });
 
 export const insertOrderSchema = createInsertSchema(orders).omit({
@@ -91,12 +91,12 @@ export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect;
 
 // Order Items table
-export const orderItems = pgTable("order_items", {
-  id: serial("id").primaryKey(),
+export const orderItems = sqliteTable("order_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   orderId: integer("order_id").notNull(),
   productId: integer("product_id").notNull(),
-  quantity: doublePrecision("quantity").notNull(),
-  price: doublePrecision("price").notNull(),
+  quantity: real("quantity").notNull(),
+  price: real("price").notNull(),
 });
 
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
@@ -107,13 +107,13 @@ export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 export type OrderItem = typeof orderItems.$inferSelect;
 
 // Market Prices table
-export const marketPrices = pgTable("market_prices", {
-  id: serial("id").primaryKey(),
+export const marketPrices = sqliteTable("market_prices", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   productName: text("product_name").notNull(),
   category: text("category").notNull(),
-  price: doublePrecision("price").notNull(),
-  previousPrice: doublePrecision("previous_price"),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  price: real("price").notNull(),
+  previousPrice: real("previous_price"),
+  updatedAt: text("updated_at").default("CURRENT_TIMESTAMP"),
 });
 
 export const insertMarketPriceSchema = createInsertSchema(marketPrices).omit({
