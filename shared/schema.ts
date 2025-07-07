@@ -46,21 +46,21 @@ export type UpdateUserProfile = z.infer<typeof updateUserProfileSchema>;
 export type User = typeof users.$inferSelect;
 
 // Products/Produce table
-export const products = pgTable("products", {
-  id: serial("id").primaryKey(),
+export const products = sqliteTable("products", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   farmerId: integer("farmer_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
   category: text("category").notNull(),
-  price: doublePrecision("price").notNull(),
+  price: real("price").notNull(),
   unit: text("unit").notNull(),
-  quantity: doublePrecision("quantity").notNull(),
+  quantity: real("quantity").notNull(),
   imageUrl: text("image_url"),
   image: text("image"), // For compatibility with UI components
-  organic: boolean("organic").default(false),
+  organic: integer("organic", { mode: "boolean" }).default(false),
   sku: text("sku"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: text("created_at").default("CURRENT_TIMESTAMP"),
+  updatedAt: text("updated_at").default("CURRENT_TIMESTAMP"),
 });
 
 export const insertProductSchema = createInsertSchema(products).omit({
