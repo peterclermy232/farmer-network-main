@@ -23,6 +23,11 @@ export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
   role: true,
   name: true,
+}).extend({
+  // Add password strength validation
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  // Add email format validation
+  email: z.string().email("Invalid email format"),
 });
 
 // For profile updates - exclude password and role
