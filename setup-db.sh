@@ -1,31 +1,56 @@
 #!/bin/bash
 
-# Database setup script for Farmers Market
-echo "Setting up PostgreSQL database for Farmers Market..."
+# === CONFIGURATION ===
+DB_NAME="farmers_market"
+DB_USER="farmers_market_user"
+DB_PASS="123"
+DB_HOST="localhost"
+DB_PORT="5432"
 
-# Check if PostgreSQL is installed
-if ! command -v psql &> /dev/null; then
-    echo "PostgreSQL is not installed. Installing..."
-    
-    # Update package list
-    sudo apt-get update
-    
-    # Install PostgreSQL
-    sudo apt-get install -y postgresql postgresql-contrib
-    
-    # Start PostgreSQL service
-    sudo systemctl start postgresql
-    sudo systemctl enable postgresql
-fi
+ENV_PATH="./.env"  # Adjust this to /app/.env if needed
+SESSION_SECRET=$(openssl rand -hex 32)
+STRIPE_SECRET_KEY="your-stripe-secret-key-here"
 
-# Create database user and database
-sudo -u postgres psql -c "CREATE USER farmers_market_user WITH PASSWORD 'farmers_market_password';"
-sudo -u postgres psql -c "CREATE DATABASE farmers_market OWNER farmers_market_user;"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE farmers_market TO farmers_market_user;"
+# === CREATE DATABASE AND USER ===
+echo "Creating PostgreSQL user and database..."
 
-# Update .env file with actual database URL
-sed -i 's|DATABASE_URL=postgresql://username:password@localhost:5432/farmers_market|DATABASE_URL=postgresql://farmers_market_user:farmers_market_password@localhost:5432/farmers_market|g' /app/.env
+sudo -u postgres psql <<EOF
+DO \$\$
+BEGIN
+   IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '${DB_USER}') THEN
+      CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';
+   END IF;
+END
+\$\$;
 
-echo "Database setup complete!"
-echo "Database URL: postgresql://farmers_market_user:farmers_market_password@localhost:5432/farmers_market"
-echo "You can now run 'npm run db:push' to create the database tables."
+CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
+GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
+EOF
+
+echo "✅ Database and user created."
+
+# === CREATE .env FILE ===
+echo "Generating .env file at ${ENV_PATH}..."
+
+cat <<EOF > "${ENV_PATH}"
+# Database Configuration
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+
+# Session Configuration
+SESSION_SECRET=${SESSION_SECRET}
+
+# Stripe Configuration (optional)
+STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+
+# Other Configuration
+NODE_ENV=development
+EOF
+
+echo "✅ .env file created with secure session key."
+
+# === RUN PRISMA DB PUSH ===
+echo "Running database migration (db push)..."
+npx prisma db push
+
+echo "✅ Database setup complete!"
+echo "You can now start your server or run 'npm run dev'."
